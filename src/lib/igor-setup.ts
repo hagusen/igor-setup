@@ -50,23 +50,39 @@ export class IgorSetup {
   }
 
   static async getRuntimeBasedOnYyp(yypPath: string) {
-    if (!fs.existsSync(yypPath)) {
-      throw new Error(`YYP file does not exist: ${yypPath}`);
+  if (!fs.existsSync(yypPath)) {
+    throw new Error(`YYP file does not exist: ${yypPath}`);
+  }
+  
+  try {
+    const yypContent = fs.readFileSync(yypPath, 'utf8');
+    if (typeof yypContent !== 'string') {
+      throw new Error(`Failed to read YYP file content as a string: ${yypPath}`);
     }
-    const yypContent = fs.readFileSync(yypPath).toString();
+
     const regex = /"IDEVersion":"(\d+\.\d+\.\d+\.\d+)"/;
     const match = yypContent.match(regex);
-    let ideVersion;
-    if (match) {
-      ideVersion = match[1];
-    } else {
-      throw new Error("Could not find IDEVersion in the yyp file.");
+    if (!match || !match[1]) {
+      throw new Error(`Could not find IDEVersion in the yyp file: ${yypPath}`);
     }
+    const ideVersion = match[1];
+    
     const releases = await fetchReleasesSummaryWithNotes();
-    const release = releases.find((r) => r.ide.version == ideVersion);
-    const matchingRuntimeVersion = release?.runtime.version as string;
-    return matchingRuntimeVersion;
+    if (!Array.isArray(releases)) {
+      throw new Error('Failed to fetch releases summary');
+    }
+    
+    const release = releases.find((r) => r.ide.version === ideVersion);
+    if (!release) {
+      throw new Error(`No matching release found for IDE version: ${ideVersion}`);
+    }
+    return release.runtime.version;
+  } catch (error) {
+    core.error(`Error processing YYP file or fetching releases: ${error.message}`);
+    throw error;
   }
+}
+
 
   async ensureIgorBootStrapperBasedOnOs() {
     let igorExecutable = "Igor";
