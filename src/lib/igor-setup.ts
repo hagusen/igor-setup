@@ -185,64 +185,75 @@ export class IgorSetup {
     this.userDir = newUserDir;
   }
 
-  installModules(modules?: ModuleAliases[]) {
-    if (!modules || modules.length === 0) {
-      switch (platform()) {
-        case "win32":
-          modules = ["windows"];
-          break;
-        case "darwin":
-          modules = ["ios"];
-          break;
-        case "linux":
-          modules = ["android"];
-          break;
-      }
-    }
+installModules(modules?: ModuleAliases[]) {
+  core.info(`Installing modules: ${JSON.stringify(modules)}`);
 
-    if (this.modulesAreInstalled(modules)) {
-      core.info("Modules already installed!");
-    } else {
-      if (!this.modulesAreInstalled(modules)) {
-        const osModule = this._getRequiredOsModule();
-        let targetAndOsModules = modules;
-        if (osModule) {
-          targetAndOsModules = modules.concat(osModule);
-        }
-
-        const args = [];
-        args.push(
-          `/rp=${this.runtimeDir}`,
-          `/ru=${this._inferFeed()}`,
-          `/uf=${this.userDir}`,
-          `/m=${targetAndOsModules.join(",")}`,
-          `--`,
-          `Runtime`,
-          `Install`,
-          this.targetRuntime
-        );
-
-        core.info(this.igorExecutable);
-        core.info(args.join("\n"));
-        core.info([this.igorExecutable, args.join(" ")].join(" "));
-        ps.spawnSync(this.igorExecutable, args, {
-          stdio: "inherit",
-          cwd: path.dirname(this.igorExecutable),
-        });
-        this.targetModules = targetAndOsModules;
-      } else {
-        core.info("Runtime is already installed!");
-      }
+  if (!modules || modules.length === 0) {
+    switch (platform()) {
+      case "win32":
+        modules = ["windows"];
+        break;
+      case "darwin":
+        modules = ["ios"];
+        break;
+      case "linux":
+        modules = ["android"];
+        break;
     }
-    this.checkFfmpeg();
-    this.targetRuntimeDir = path.join(
-      this.runtimeDir,
-      `runtime-${this.targetRuntime}`
-    );
-    if (platform() !== "win32") {
-      this.postInstall();
-    }
+    core.info(`No modules specified, defaulting to: ${JSON.stringify(modules)}`);
   }
+
+  if (this.modulesAreInstalled(modules)) {
+    core.info("Modules already installed!");
+  } else {
+    const osModule = this._getRequiredOsModule();
+    let targetAndOsModules = modules;
+    if (osModule) {
+      targetAndOsModules = modules.concat(osModule);
+    }
+
+    core.info(`Installing modules: ${JSON.stringify(targetAndOsModules)}`);
+
+    const args = [
+      `/rp=${this.runtimeDir}`,
+      `/ru=${this._inferFeed()}`,
+      `/uf=${this.userDir}`,
+      `/m=${targetAndOsModules.join(",")}`,
+      `--`,
+      `Runtime`,
+      `Install`,
+      this.targetRuntime
+    ];
+
+    core.info(`Executing Igor with args: ${JSON.stringify(args)}`);
+    core.info(`Igor executable: ${this.igorExecutable}`);
+
+    const result = ps.spawnSync(this.igorExecutable, args, {
+      stdio: "inherit",
+      cwd: path.dirname(this.igorExecutable),
+    });
+
+    if (result.error) {
+      core.error(`Error executing Igor: ${result.error.message}`);
+    } else if (result.status !== 0) {
+      core.error(`Igor exited with status: ${result.status}`);
+    } else {
+      core.info("Igor execution completed successfully");
+    }
+
+    this.targetModules = targetAndOsModules;
+  }
+
+  this.checkFfmpeg();
+  this.targetRuntimeDir = path.join(
+    this.runtimeDir,
+    `runtime-${this.targetRuntime}`
+  );
+  if (platform() !== "win32") {
+    this.postInstall();
+  }
+}
+
 
   modulesAreInstalled(modules: ModuleAliases[]) {
     const runtimeReceiptPath = path.join(
