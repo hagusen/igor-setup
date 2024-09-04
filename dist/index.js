@@ -12762,6 +12762,8 @@ exports.validate = function (xmlData, options) {
             return getErrorObject('InvalidTag', "Closing tag '"+tagName+"' doesn't have proper closing.", getLineNumberForPosition(xmlData, i));
           } else if (attrStr.trim().length > 0) {
             return getErrorObject('InvalidTag', "Closing tag '"+tagName+"' can't have attributes or invalid starting.", getLineNumberForPosition(xmlData, tagStartPos));
+          } else if (tags.length === 0) {
+            return getErrorObject('InvalidTag', "Closing tag '"+tagName+"' has not been opened.", getLineNumberForPosition(xmlData, tagStartPos));
           } else {
             const otg = tags.pop();
             if (tagName !== otg.tagName) {
@@ -13204,6 +13206,7 @@ Builder.prototype.j2x = function(jObj, level) {
       //repeated nodes
       const arrLen = jObj[key].length;
       let listTagVal = "";
+      let listTagAttr = "";
       for (let j = 0; j < arrLen; j++) {
         const item = jObj[key][j];
         if (typeof item === 'undefined') {
@@ -13213,17 +13216,27 @@ Builder.prototype.j2x = function(jObj, level) {
           else val += this.indentate(level) + '<' + key + '/' + this.tagEndChar;
           // val += this.indentate(level) + '<' + key + '/' + this.tagEndChar;
         } else if (typeof item === 'object') {
-          if(this.options.oneListGroup ){
-            listTagVal += this.j2x(item, level + 1).val;
+          if(this.options.oneListGroup){
+            const result = this.j2x(item, level + 1);
+            listTagVal += result.val;
+            if (this.options.attributesGroupName && item.hasOwnProperty(this.options.attributesGroupName)) {
+              listTagAttr += result.attrStr
+            }
           }else{
             listTagVal += this.processTextOrObjNode(item, key, level)
           }
         } else {
-          listTagVal += this.buildTextValNode(item, key, '', level);
+          if (this.options.oneListGroup) {
+            let textValue = this.options.tagValueProcessor(key, item);
+            textValue = this.replaceEntitiesValue(textValue);
+            listTagVal += textValue;
+          } else {
+            listTagVal += this.buildTextValNode(item, key, '', level);
+          }
         }
       }
       if(this.options.oneListGroup){
-        listTagVal = this.buildObjectNode(listTagVal, key, '', level);
+        listTagVal = this.buildObjectNode(listTagVal, key, listTagAttr, level);
       }
       val += listTagVal;
     } else {
@@ -13761,6 +13774,8 @@ class OrderedObjParser{
       "copyright" : { regex: /&(copy|#169);/g, val: "©" },
       "reg" : { regex: /&(reg|#174);/g, val: "®" },
       "inr" : { regex: /&(inr|#8377);/g, val: "₹" },
+      "num_dec": { regex: /&#([0-9]{1,7});/g, val : (_, str) => String.fromCharCode(Number.parseInt(str, 10)) },
+      "num_hex": { regex: /&#x([0-9a-fA-F]{1,6});/g, val : (_, str) => String.fromCharCode(Number.parseInt(str, 16)) },
     };
     this.addExternalEntities = addExternalEntities;
     this.parseXml = parseXml;
@@ -14030,10 +14045,18 @@ const parseXml = function(xmlData) {
           let tagContent = "";
           //self-closing tag
           if(tagExp.length > 0 && tagExp.lastIndexOf("/") === tagExp.length - 1){
+            if(tagName[tagName.length - 1] === "/"){ //remove trailing '/'
+              tagName = tagName.substr(0, tagName.length - 1);
+              jPath = jPath.substr(0, jPath.length - 1);
+              tagExp = tagName;
+            }else{
+              tagExp = tagExp.substr(0, tagExp.length - 1);
+            }
             i = result.closeIndex;
           }
           //unpaired tag
           else if(this.options.unpairedTags.indexOf(tagName) !== -1){
+            
             i = result.closeIndex;
           }
           //normal tag
@@ -26551,6 +26574,131 @@ module.exports = buildConnector
 
 /***/ }),
 
+/***/ 4462:
+/***/ ((module) => {
+
+
+
+/** @type {Record<string, string | undefined>} */
+const headerNameLowerCasedRecord = {}
+
+// https://developer.mozilla.org/docs/Web/HTTP/Headers
+const wellknownHeaderNames = [
+  'Accept',
+  'Accept-Encoding',
+  'Accept-Language',
+  'Accept-Ranges',
+  'Access-Control-Allow-Credentials',
+  'Access-Control-Allow-Headers',
+  'Access-Control-Allow-Methods',
+  'Access-Control-Allow-Origin',
+  'Access-Control-Expose-Headers',
+  'Access-Control-Max-Age',
+  'Access-Control-Request-Headers',
+  'Access-Control-Request-Method',
+  'Age',
+  'Allow',
+  'Alt-Svc',
+  'Alt-Used',
+  'Authorization',
+  'Cache-Control',
+  'Clear-Site-Data',
+  'Connection',
+  'Content-Disposition',
+  'Content-Encoding',
+  'Content-Language',
+  'Content-Length',
+  'Content-Location',
+  'Content-Range',
+  'Content-Security-Policy',
+  'Content-Security-Policy-Report-Only',
+  'Content-Type',
+  'Cookie',
+  'Cross-Origin-Embedder-Policy',
+  'Cross-Origin-Opener-Policy',
+  'Cross-Origin-Resource-Policy',
+  'Date',
+  'Device-Memory',
+  'Downlink',
+  'ECT',
+  'ETag',
+  'Expect',
+  'Expect-CT',
+  'Expires',
+  'Forwarded',
+  'From',
+  'Host',
+  'If-Match',
+  'If-Modified-Since',
+  'If-None-Match',
+  'If-Range',
+  'If-Unmodified-Since',
+  'Keep-Alive',
+  'Last-Modified',
+  'Link',
+  'Location',
+  'Max-Forwards',
+  'Origin',
+  'Permissions-Policy',
+  'Pragma',
+  'Proxy-Authenticate',
+  'Proxy-Authorization',
+  'RTT',
+  'Range',
+  'Referer',
+  'Referrer-Policy',
+  'Refresh',
+  'Retry-After',
+  'Sec-WebSocket-Accept',
+  'Sec-WebSocket-Extensions',
+  'Sec-WebSocket-Key',
+  'Sec-WebSocket-Protocol',
+  'Sec-WebSocket-Version',
+  'Server',
+  'Server-Timing',
+  'Service-Worker-Allowed',
+  'Service-Worker-Navigation-Preload',
+  'Set-Cookie',
+  'SourceMap',
+  'Strict-Transport-Security',
+  'Supports-Loading-Mode',
+  'TE',
+  'Timing-Allow-Origin',
+  'Trailer',
+  'Transfer-Encoding',
+  'Upgrade',
+  'Upgrade-Insecure-Requests',
+  'User-Agent',
+  'Vary',
+  'Via',
+  'WWW-Authenticate',
+  'X-Content-Type-Options',
+  'X-DNS-Prefetch-Control',
+  'X-Frame-Options',
+  'X-Permitted-Cross-Domain-Policies',
+  'X-Powered-By',
+  'X-Requested-With',
+  'X-XSS-Protection'
+]
+
+for (let i = 0; i < wellknownHeaderNames.length; ++i) {
+  const key = wellknownHeaderNames[i]
+  const lowerCasedKey = key.toLowerCase()
+  headerNameLowerCasedRecord[key] = headerNameLowerCasedRecord[lowerCasedKey] =
+    lowerCasedKey
+}
+
+// Note: object prototypes should not be able to be referenced. e.g. `Object#hasOwnProperty`.
+Object.setPrototypeOf(headerNameLowerCasedRecord, null)
+
+module.exports = {
+  wellknownHeaderNames,
+  headerNameLowerCasedRecord
+}
+
+
+/***/ }),
+
 /***/ 8045:
 /***/ ((module) => {
 
@@ -27378,6 +27526,7 @@ const { InvalidArgumentError } = __nccwpck_require__(8045)
 const { Blob } = __nccwpck_require__(4300)
 const nodeUtil = __nccwpck_require__(3837)
 const { stringify } = __nccwpck_require__(3477)
+const { headerNameLowerCasedRecord } = __nccwpck_require__(4462)
 
 const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(v => Number(v))
 
@@ -27585,6 +27734,15 @@ const KEEPALIVE_TIMEOUT_EXPR = /timeout=(\d+)/
 function parseKeepAliveTimeout (val) {
   const m = val.toString().match(KEEPALIVE_TIMEOUT_EXPR)
   return m ? parseInt(m[1], 10) * 1000 : null
+}
+
+/**
+ * Retrieves a header name and returns its lowercase value.
+ * @param {string | Buffer} value Header name
+ * @returns {string}
+ */
+function headerNameToString (value) {
+  return headerNameLowerCasedRecord[value] || value.toLowerCase()
 }
 
 function parseHeaders (headers, obj = {}) {
@@ -27858,6 +28016,7 @@ module.exports = {
   isIterable,
   isAsyncIterable,
   isDestroyed,
+  headerNameToString,
   parseRawHeaders,
   parseHeaders,
   parseKeepAliveTimeout,
@@ -34492,14 +34651,18 @@ const { isBlobLike, toUSVString, ReadableStreamFrom } = __nccwpck_require__(3983
 const assert = __nccwpck_require__(9491)
 const { isUint8Array } = __nccwpck_require__(9830)
 
+let supportedHashes = []
+
 // https://nodejs.org/api/crypto.html#determining-if-crypto-support-is-unavailable
 /** @type {import('crypto')|undefined} */
 let crypto
 
 try {
   crypto = __nccwpck_require__(6113)
+  const possibleRelevantHashes = ['sha256', 'sha384', 'sha512']
+  supportedHashes = crypto.getHashes().filter((hash) => possibleRelevantHashes.includes(hash))
+/* c8 ignore next 3 */
 } catch {
-
 }
 
 function responseURL (response) {
@@ -35027,66 +35190,56 @@ function bytesMatch (bytes, metadataList) {
     return true
   }
 
-  // 3. If parsedMetadata is the empty set, return true.
+  // 3. If response is not eligible for integrity validation, return false.
+  // TODO
+
+  // 4. If parsedMetadata is the empty set, return true.
   if (parsedMetadata.length === 0) {
     return true
   }
 
-  // 4. Let metadata be the result of getting the strongest
+  // 5. Let metadata be the result of getting the strongest
   //    metadata from parsedMetadata.
-  const list = parsedMetadata.sort((c, d) => d.algo.localeCompare(c.algo))
-  // get the strongest algorithm
-  const strongest = list[0].algo
-  // get all entries that use the strongest algorithm; ignore weaker
-  const metadata = list.filter((item) => item.algo === strongest)
+  const strongest = getStrongestMetadata(parsedMetadata)
+  const metadata = filterMetadataListByAlgorithm(parsedMetadata, strongest)
 
-  // 5. For each item in metadata:
+  // 6. For each item in metadata:
   for (const item of metadata) {
     // 1. Let algorithm be the alg component of item.
     const algorithm = item.algo
 
     // 2. Let expectedValue be the val component of item.
-    let expectedValue = item.hash
+    const expectedValue = item.hash
 
     // See https://github.com/web-platform-tests/wpt/commit/e4c5cc7a5e48093220528dfdd1c4012dc3837a0e
     // "be liberal with padding". This is annoying, and it's not even in the spec.
 
-    if (expectedValue.endsWith('==')) {
-      expectedValue = expectedValue.slice(0, -2)
-    }
-
     // 3. Let actualValue be the result of applying algorithm to bytes.
     let actualValue = crypto.createHash(algorithm).update(bytes).digest('base64')
 
-    if (actualValue.endsWith('==')) {
-      actualValue = actualValue.slice(0, -2)
+    if (actualValue[actualValue.length - 1] === '=') {
+      if (actualValue[actualValue.length - 2] === '=') {
+        actualValue = actualValue.slice(0, -2)
+      } else {
+        actualValue = actualValue.slice(0, -1)
+      }
     }
 
     // 4. If actualValue is a case-sensitive match for expectedValue,
     //    return true.
-    if (actualValue === expectedValue) {
-      return true
-    }
-
-    let actualBase64URL = crypto.createHash(algorithm).update(bytes).digest('base64url')
-
-    if (actualBase64URL.endsWith('==')) {
-      actualBase64URL = actualBase64URL.slice(0, -2)
-    }
-
-    if (actualBase64URL === expectedValue) {
+    if (compareBase64Mixed(actualValue, expectedValue)) {
       return true
     }
   }
 
-  // 6. Return false.
+  // 7. Return false.
   return false
 }
 
 // https://w3c.github.io/webappsec-subresource-integrity/#grammardef-hash-with-options
 // https://www.w3.org/TR/CSP2/#source-list-syntax
 // https://www.rfc-editor.org/rfc/rfc5234#appendix-B.1
-const parseHashWithOptions = /((?<algo>sha256|sha384|sha512)-(?<hash>[A-z0-9+/]{1}.*={0,2}))( +[\x21-\x7e]?)?/i
+const parseHashWithOptions = /(?<algo>sha256|sha384|sha512)-((?<hash>[A-Za-z0-9+/]+|[A-Za-z0-9_-]+)={0,2}(?:\s|$)( +[!-~]*)?)?/i
 
 /**
  * @see https://w3c.github.io/webappsec-subresource-integrity/#parse-metadata
@@ -35100,8 +35253,6 @@ function parseMetadata (metadata) {
   // 2. Let empty be equal to true.
   let empty = true
 
-  const supportedHashes = crypto.getHashes()
-
   // 3. For each token returned by splitting metadata on spaces:
   for (const token of metadata.split(' ')) {
     // 1. Set empty to false.
@@ -35111,7 +35262,11 @@ function parseMetadata (metadata) {
     const parsedToken = parseHashWithOptions.exec(token)
 
     // 3. If token does not parse, continue to the next token.
-    if (parsedToken === null || parsedToken.groups === undefined) {
+    if (
+      parsedToken === null ||
+      parsedToken.groups === undefined ||
+      parsedToken.groups.algo === undefined
+    ) {
       // Note: Chromium blocks the request at this point, but Firefox
       // gives a warning that an invalid integrity was given. The
       // correct behavior is to ignore these, and subsequently not
@@ -35120,11 +35275,11 @@ function parseMetadata (metadata) {
     }
 
     // 4. Let algorithm be the hash-algo component of token.
-    const algorithm = parsedToken.groups.algo
+    const algorithm = parsedToken.groups.algo.toLowerCase()
 
     // 5. If algorithm is a hash function recognized by the user
     //    agent, add the parsed token to result.
-    if (supportedHashes.includes(algorithm.toLowerCase())) {
+    if (supportedHashes.includes(algorithm)) {
       result.push(parsedToken.groups)
     }
   }
@@ -35135,6 +35290,82 @@ function parseMetadata (metadata) {
   }
 
   return result
+}
+
+/**
+ * @param {{ algo: 'sha256' | 'sha384' | 'sha512' }[]} metadataList
+ */
+function getStrongestMetadata (metadataList) {
+  // Let algorithm be the algo component of the first item in metadataList.
+  // Can be sha256
+  let algorithm = metadataList[0].algo
+  // If the algorithm is sha512, then it is the strongest
+  // and we can return immediately
+  if (algorithm[3] === '5') {
+    return algorithm
+  }
+
+  for (let i = 1; i < metadataList.length; ++i) {
+    const metadata = metadataList[i]
+    // If the algorithm is sha512, then it is the strongest
+    // and we can break the loop immediately
+    if (metadata.algo[3] === '5') {
+      algorithm = 'sha512'
+      break
+    // If the algorithm is sha384, then a potential sha256 or sha384 is ignored
+    } else if (algorithm[3] === '3') {
+      continue
+    // algorithm is sha256, check if algorithm is sha384 and if so, set it as
+    // the strongest
+    } else if (metadata.algo[3] === '3') {
+      algorithm = 'sha384'
+    }
+  }
+  return algorithm
+}
+
+function filterMetadataListByAlgorithm (metadataList, algorithm) {
+  if (metadataList.length === 1) {
+    return metadataList
+  }
+
+  let pos = 0
+  for (let i = 0; i < metadataList.length; ++i) {
+    if (metadataList[i].algo === algorithm) {
+      metadataList[pos++] = metadataList[i]
+    }
+  }
+
+  metadataList.length = pos
+
+  return metadataList
+}
+
+/**
+ * Compares two base64 strings, allowing for base64url
+ * in the second string.
+ *
+* @param {string} actualValue always base64
+ * @param {string} expectedValue base64 or base64url
+ * @returns {boolean}
+ */
+function compareBase64Mixed (actualValue, expectedValue) {
+  if (actualValue.length !== expectedValue.length) {
+    return false
+  }
+  for (let i = 0; i < actualValue.length; ++i) {
+    if (actualValue[i] !== expectedValue[i]) {
+      if (
+        (actualValue[i] === '+' && expectedValue[i] === '-') ||
+        (actualValue[i] === '/' && expectedValue[i] === '_')
+      ) {
+        continue
+      }
+      return false
+    }
+  }
+
+  return true
 }
 
 // https://w3c.github.io/webappsec-upgrade-insecure-requests/#upgrade-request
@@ -35552,7 +35783,8 @@ module.exports = {
   urlHasHttpsScheme,
   urlIsHttpHttpsScheme,
   readAllBytes,
-  normalizeMethodRecord
+  normalizeMethodRecord,
+  parseMetadata
 }
 
 
@@ -37630,12 +37862,17 @@ function parseLocation (statusCode, headers) {
 
 // https://tools.ietf.org/html/rfc7231#section-6.4.4
 function shouldRemoveHeader (header, removeContent, unknownOrigin) {
-  return (
-    (header.length === 4 && header.toString().toLowerCase() === 'host') ||
-    (removeContent && header.toString().toLowerCase().indexOf('content-') === 0) ||
-    (unknownOrigin && header.length === 13 && header.toString().toLowerCase() === 'authorization') ||
-    (unknownOrigin && header.length === 6 && header.toString().toLowerCase() === 'cookie')
-  )
+  if (header.length === 4) {
+    return util.headerNameToString(header) === 'host'
+  }
+  if (removeContent && util.headerNameToString(header).startsWith('content-')) {
+    return true
+  }
+  if (unknownOrigin && (header.length === 13 || header.length === 6 || header.length === 19)) {
+    const name = util.headerNameToString(header)
+    return name === 'authorization' || name === 'cookie' || name === 'proxy-authorization'
+  }
+  return false
 }
 
 // https://tools.ietf.org/html/rfc7231#section-6.4
@@ -74007,7 +74244,7 @@ class IgorSetup {
         this.igorExecutable = "";
         this.userName = "tempUser";
         this.bootstrapperDir = __nccwpck_require__.ab + "bootstrapper";
-        this.runtimeDir = __nccwpck_require__.ab + "runtimes";
+        this.runtimeDir = external_path_default().resolve("runtimes");
         this.workingDir = __nccwpck_require__.ab + "gm-sandbox";
         this.userDir = "";
         this.targetRuntimeDir = "";
@@ -74035,20 +74272,31 @@ class IgorSetup {
         if (!lib_default().existsSync(yypPath)) {
             throw new Error(`YYP file does not exist: ${yypPath}`);
         }
-        const yypContent = lib_default().readFileSync(yypPath).toString();
-        const regex = /"IDEVersion":"(\d+\.\d+\.\d+\.\d+)"/;
-        const match = yypContent.match(regex);
-        let ideVersion;
-        if (match) {
-            ideVersion = match[1];
+        try {
+            const yypContent = lib_default().readFileSync(yypPath, 'utf8');
+            if (typeof yypContent !== 'string') {
+                throw new Error(`Failed to read YYP file content as a string: ${yypPath}`);
+            }
+            const regex = /"IDEVersion":"(\d+\.\d+\.\d+\.\d+)"/;
+            const match = yypContent.match(regex);
+            if (!match || !match[1]) {
+                throw new Error(`Could not find IDEVersion in the yyp file: ${yypPath}`);
+            }
+            const ideVersion = match[1];
+            const releases = await fetchReleasesSummaryWithNotes();
+            if (!Array.isArray(releases)) {
+                throw new Error('Failed to fetch releases summary');
+            }
+            const release = releases.find((r) => r.ide.version === ideVersion);
+            if (!release) {
+                throw new Error(`No matching release found for IDE version: ${ideVersion}`);
+            }
+            return release.runtime.version;
         }
-        else {
-            throw new Error("Could not find IDEVersion in the yyp file.");
+        catch (error) {
+            core.error(`Error processing YYP file or fetching releases: ${error.message}`);
+            throw error;
         }
-        const releases = await fetchReleasesSummaryWithNotes();
-        const release = releases.find((r) => r.ide.version == ideVersion);
-        const matchingRuntimeVersion = release === null || release === void 0 ? void 0 : release.runtime.version;
-        return matchingRuntimeVersion;
     }
     async ensureIgorBootStrapperBasedOnOs() {
         let igorExecutable = "Igor";
@@ -74142,6 +74390,7 @@ class IgorSetup {
         this.userDir = newUserDir;
     }
     installModules(modules) {
+        core.info(`Installing modules: ${JSON.stringify(modules)}`);
         if (!modules || modules.length === 0) {
             switch ((0,external_os_.platform)()) {
                 case "win32":
@@ -74154,31 +74403,44 @@ class IgorSetup {
                     modules = ["android"];
                     break;
             }
+            core.info(`No modules specified, defaulting to: ${JSON.stringify(modules)}`);
         }
         if (this.modulesAreInstalled(modules)) {
             core.info("Modules already installed!");
         }
         else {
-            if (!this.modulesAreInstalled(modules)) {
-                const osModule = this._getRequiredOsModule();
-                let targetAndOsModules = modules;
-                if (osModule) {
-                    targetAndOsModules = modules.concat(osModule);
-                }
-                const args = [];
-                args.push(`/rp=${this.runtimeDir}`, `/ru=${this._inferFeed()}`, `/uf=${this.userDir}`, `/m=${targetAndOsModules.join(",")}`, `--`, `Runtime`, `Install`, this.targetRuntime);
-                core.info(this.igorExecutable);
-                core.info(args.join("\n"));
-                core.info([this.igorExecutable, args.join(" ")].join(" "));
-                external_child_process_default().spawnSync(this.igorExecutable, args, {
-                    stdio: "inherit",
-                    cwd: external_path_default().dirname(this.igorExecutable),
-                });
-                this.targetModules = targetAndOsModules;
+            const osModule = this._getRequiredOsModule();
+            let targetAndOsModules = modules;
+            if (osModule) {
+                targetAndOsModules = modules.concat(osModule);
+            }
+            core.info(`Installing modules: ${JSON.stringify(targetAndOsModules)}`);
+            const args = [
+                `/rp=${this.runtimeDir}`,
+                `/ru=${this._inferFeed()}`,
+                `/uf=${this.userDir}`,
+                `/m=${targetAndOsModules.join(",")}`,
+                `--`,
+                `Runtime`,
+                `Install`,
+                this.targetRuntime
+            ];
+            core.info(`Executing Igor with args: ${JSON.stringify(args)}`);
+            core.info(`Igor executable: ${this.igorExecutable}`);
+            const result = external_child_process_default().spawnSync(this.igorExecutable, args, {
+                stdio: "inherit",
+                cwd: external_path_default().dirname(this.igorExecutable),
+            });
+            if (result.error) {
+                core.error(`Error executing Igor: ${result.error.message}`);
+            }
+            else if (result.status !== 0) {
+                core.error(`Igor exited with status: ${result.status}`);
             }
             else {
-                core.info("Runtime is already installed!");
+                core.info("Igor execution completed successfully");
             }
+            this.targetModules = targetAndOsModules;
         }
         this.checkFfmpeg();
         this.targetRuntimeDir = external_path_default().join(this.runtimeDir, `runtime-${this.targetRuntime}`);
@@ -74395,11 +74657,12 @@ class IgorSetup {
 
 async function run() {
     try {
-        const accessKey = core.getInput("access-key");
+        core.info("banana");
+        const accessKey = core.getInput("access-key", { required: true });
         let targetRuntime = core.getInput("runtime-version");
         const targetYyp = core.getInput("target-yyp");
         if (targetRuntime && targetYyp) {
-            core.info("Both runtime-version and target-yyp are specified. Using runtime-version.");
+            core.warning("Both runtime-version and target-yyp are specified. Using runtime-version.");
         }
         else if (!targetRuntime && !targetYyp) {
             throw new Error("You must specify either runtime-version or target-yyp");
@@ -74410,9 +74673,17 @@ async function run() {
         }
         const localSettingsOverrideFile = core.getInput("local-settings-override-file");
         const devicesOverrideFile = core.getInput("devices-settings-override-file");
-        const targetModules = core.getInput("modules")
-            ? core.getInput("modules").split(",")
-            : undefined;
+        let targetModules;
+        const modulesInput = core.getInput("modules");
+        if (modulesInput) {
+            try {
+                targetModules = modulesInput.split(",");
+                targetModules = targetModules.map(module => module.trim());
+            }
+            catch (error) {
+                throw new Error(`Failed to parse modules input: ${error.message}`);
+            }
+        }
         const igorSetup = new IgorSetup(accessKey, targetRuntime, localSettingsOverrideFile, devicesOverrideFile);
         await igorSetup.ensureIgorBootStrapperBasedOnOs();
         igorSetup.installModules(targetModules);
@@ -74426,7 +74697,7 @@ async function run() {
         core.setOutput("bootstrapper-dir", igorSetup.bootstrapperDir);
     }
     catch (err) {
-        core.setFailed(err.message);
+        core.setFailed(err instanceof Error ? err.message : String(err));
     }
 }
 // eslint-disable-next-line @typescript-eslint/no-floating-promises
