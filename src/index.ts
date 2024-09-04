@@ -3,6 +3,8 @@ import { IgorSetup } from "$/lib/igor-setup";
 
 export async function run() {
   try {
+
+    core.info("banana");
     const accessKey = core.getInput("access-key", { required: true });
     
     let targetRuntime = core.getInput("runtime-version");
